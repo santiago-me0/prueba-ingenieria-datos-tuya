@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+
+# Generated datasets
+Ejercicio_1/data/processed_clients.csv
+
+# OS files
+.DS_Store

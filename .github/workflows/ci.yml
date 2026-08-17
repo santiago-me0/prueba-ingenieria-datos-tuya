@@ -1,0 +1,73 @@
+name: CI/CD - Ejercicio 1
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "Ejercicio_1/**"
+      - ".github/workflows/ci.yml"
+
+  push:
+    branches:
+      - main
+    paths:
+      - "Ejercicio_1/**"
+      - ".github/workflows/ci.yml"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Validate phone data pipeline
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Show Python version
+        run: python --version
+
+      - name: Run unit and integration tests
+        run: |
+          python -m unittest discover \
+            -s Ejercicio_1/test \
+            -p "test_*.py" \
+            -v
+
+  cd:
+    name: Build trusted phone dataset
+    needs: ci
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Generate trusted dataset
+        run: python -m Ejercicio_1.src.pipeline
+
+      - name: Publish trusted dataset artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: trusted-phone-dataset-${{ github.run_number }}
+          path: Ejercicio_1/data/processed_clients.csv
+          if-no-files-found: error
+          retention-days: 30
