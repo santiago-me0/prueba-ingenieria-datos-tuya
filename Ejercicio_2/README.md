@@ -1,512 +1,96 @@
-# Ejercicio 2 - KPI's y monitoreo de calidad de datos
+# Ejercicio 2 - KPIs y monitoreo de calidad de datos
 
-## 1. Objetivo
+## Solución propuesta
 
-Plantear conceptualmente un mecanismo que permita realizar veeduría sobre la calidad de los números telefónicos generados a partir del proceso definido en el Ejercicio 1, proporcionando adicionalmente trazabilidad del dato e indicadores de calidad para los equipos de negocio.
+A partir del resultado del Ejercicio 1 se propone un mecanismo de monitoreo que permita a los equipos de negocio consultar la calidad de los teléfonos, analizar su evolución y conocer la trazabilidad de un dato específico.
 
-La solución busca permitir responder preguntas como:
+La idea es que cada ejecución exitosa del pipeline deje información en tres conjuntos lógicos:
 
-* ¿Qué tan completa es la información telefónica de los clientes?
-* ¿Qué proporción de los teléfonos cumple las reglas de calidad?
-* ¿Cuáles son las principales causas de datos inválidos?
-* ¿Existen números sospechosos o duplicados?
-* ¿La calidad de los datos mejora o empeora a través del tiempo?
-* ¿Qué ocurrió con un número telefónico específico durante su procesamiento?
-* ¿Qué ejecución y versión del pipeline produjo determinado resultado?
+- `trusted_phones`: detalle de los teléfonos procesados y su resultado de calidad.
+- `data_quality_runs`: información y métricas agregadas de cada ejecución.
+- `data_quality_rule_results`: resultado de las reglas de calidad evaluadas sobre cada registro.
 
-El ejercicio se plantea de manera conceptual y no depende de una herramienta específica de visualización o almacenamiento.
+Estos datos alimentarían una capa de métricas consumida por una herramienta de Business Intelligence.
+
+```text
+                  Pipeline Ejercicio 1
+                          |
+             +------------+-------------+
+             |            |             |
+             v            v             v
+      trusted_phones  quality_runs  rule_results
+             |            |             |
+             +------------+-------------+
+                          |
+                          v
+                   Capa de métricas
+                          |
+                          v
+                     Dashboard BI
+                          |
+              +-----------+-----------+
+              |           |           |
+              v           v           v
+           Calidad     Tendencias   Trazabilidad
+```
+
+El mecanismo no depende de una herramienta específica. La visualización podría implementarse con Power BI, Looker Studio, Databricks SQL u otra herramienta disponible en la organización.
 
 ---
 
-## 2. Relación con el Ejercicio 1
+## Información a conservar
 
-El Ejercicio 1 genera un dataset confiable a partir de números telefónicos recibidos desde una fuente de clientes.
+### `trusted_phones`
 
-El pipeline realiza:
+Contiene el resultado detallado del procesamiento de cada teléfono.
 
+| Campo | Propósito |
+|---|---|
+| `run_id` | Identificar la ejecución que procesó el registro |
+| `customer_id` | Identificar al cliente |
+| `phone_original` | Conservar el dato recibido |
+| `phone_normalized` | Conservar el resultado de normalización |
+| `phone_type` | Identificar `mobile` o `landline` |
+| `status` | Registrar `VALID`, `INVALID` o `SUSPICIOUS` |
+| `validation_reason` | Explicar el resultado principal |
+| `duplicate_group` | Identificar problemas de unicidad |
+| `processed_at` | Registrar cuándo fue procesado |
+| `pipeline_version` | Identificar la versión del proceso |
+| `source` | Identificar la fuente del dato |
 
+### `data_quality_runs`
 
-```text
-Fuente de clientes
-       |
-       v
-Normalización
-       |
-       v
-Validación
-       |
-       v
-Detección de duplicados
-       |
-       v
-Dataset procesado
-```
+Mantiene una fila por ejecución del pipeline.
 
-El resultado contiene información como:
+| Campo | Propósito |
+|---|---|
+| `run_id` | Identificador único de la ejecución |
+| `processed_at` | Fecha y hora de ejecución |
+| `pipeline_version` | Versión del código utilizada |
+| `source` | Sistema o fuente procesada |
+| `source_file` | Archivo o conjunto de datos recibido |
+| `source_hash` | Identificar de forma reproducible el insumo |
+| `total_records` | Total de registros procesados |
+| `valid_records` | Total de registros válidos |
+| `invalid_records` | Total de registros inválidos |
+| `suspicious_records` | Total de registros sospechosos |
+| `duplicate_records` | Registros involucrados en duplicidad |
 
-```text
-customer_id
-phone_original
-phone_normalized
-phone_type
-status
-validation_reason
-duplicate_group
-```
+Esta información permite comparar la calidad entre diferentes ejecuciones sin sobrescribir el histórico.
 
-El mecanismo planteado en este ejercicio utiliza dicha información como base para construir métricas de calidad y trazabilidad.
+### `data_quality_rule_results`
 
-Conceptualmente:
+Permite registrar el resultado de las reglas de calidad de manera independiente.
 
-```text
-               EJERCICIO 1
-                    |
-                    v
-           Dataset procesado
-                    |
-         +----------+----------+
-         |                     |
-         v                     v
- Información de          Información de
-    calidad               trazabilidad
-         |                     |
-         +----------+----------+
-                    |
-                    v
-             Capa de métricas
-                    |
-                    v
-               Dashboard
-                    |
-                    v
-            Equipo de negocio
-```
-
----
-
-## 3. Dimensiones de calidad
-
-El monitoreo se plantea alrededor de diferentes dimensiones de calidad de datos.
-
-### 3.1. Completitud
-
-Permite identificar qué proporción de los clientes cuenta con información telefónica, ya que un teléfono informado puede no ser necesariamente válido.
+| Campo | Propósito |
+|---|---|
+| `run_id` | Ejecución donde se evaluó la regla |
+| `customer_id` | Registro evaluado |
+| `rule_id` | Regla de calidad evaluada |
+| `rule_status` | `PASSED` o `FAILED` |
+| `rule_detail` | Detalle del resultado |
 
 Por ejemplo:
-
-```text
-phone = "telefono"
-```
-
-corresponde a un dato informado, pero inválido.
-
-Por este motivo:
-
-```text
-Completitud != Validez
-```
-
----
-
-### 3.2. Validez
-
-Permite determinar si el número cumple las reglas estructurales definidas para numeración colombiana. Por esto, los resultados del pipeline pueden clasificarse como:
-
-```text
-VALID
-INVALID
-SUSPICIOUS
-```
-
----
-
-### 3.3. Normalización
-
-Permite medir la capacidad del proceso para convertir diferentes representaciones de los teléfonos al formato canónico:
-
-```text
-+57XXXXXXXXXX
-```
-
----
-
-### 3.4. Unicidad
-
-Permite identificar números normalizados asociados a múltiples clientes.
-
-Ademas de esto, la duplicidad se analiza después de la normalización para evitar considerar como diferentes representaciones equivalentes del mismo teléfono.
-
----
-
-### 3.5. Plausibilidad
-
-Permite identificar teléfonos estructuralmente válidos que presentan patrones que requieren revisión.
-
-Ejemplos:
-
-```text
-3333333333
-3111111111
-3000000000
-```
-
-Estos registros se clasifican como:
-
-```text
-SUSPICIOUS
-```
-
-en lugar de descartarse automáticamente.
-
----
-
-### 3.6. Trazabilidad
-
-Permite reconstruir el recorrido realizado por un dato desde su recepción hasta el resultado final del procesamiento.
-
-La trazabilidad busca responder:
-
-```text
-¿Qué dato llegó?
-       |
-       v
-¿Qué transformación recibió?
-       |
-       v
-¿Qué resultado obtuvo?
-       |
-       v
-¿Por qué obtuvo ese resultado?
-       |
-       v
-¿Qué ejecución lo procesó?
-       |
-       v
-¿Qué versión del pipeline se utilizó?
-```
-
----
-
-### 3.7. Evolución temporal
-
-Permite comparar la calidad de los datos entre diferentes ejecuciones del pipeline.
-
-Esto permite identificar:
-
-* Mejoras.
-* Deterioros.
-* Cambios en la calidad de las fuentes.
-* Incrementos anormales de determinados errores.
-
----
-
-## 4. KPI's propuestos
-
-Los indicadores se plantean para ser calculados sobre datos reales una vez el proceso se encuentre conectado a una fuente productiva.
-
-No se calculan porcentajes sobre el dataset utilizado en el Ejercicio 1 debido a que sus 33 registros fueron construidos deliberadamente como casos de prueba y no representan una población real de clientes.
-
-### 4.1. Total de registros procesados
-
-```text
-Total procesados = COUNT(*)
-```
-
-Permite conocer el tamaño de la población procesada durante una ejecución.
-
----
-
-### 4.2. Porcentaje de completitud
-
-```text
-                      Registros con teléfono informado
-Completitud (%) = ----------------------------------------- x 100
-                             Total de registros
-```
-
-Permite medir la ausencia de información telefónica.
-
----
-
-### 4.3. Porcentaje de normalización exitosa
-
-```text
-                              Registros con phone_normalized
-Normalización exitosa (%) = --------------------------------- x 100
-                                   Total procesados
-```
-
-Permite identificar qué proporción de los valores recibidos puede llevarse de forma segura al formato canónico.
-
----
-
-### 4.4. Porcentaje de teléfonos válidos
-
-```text
-                       Registros con status = VALID
-Teléfonos válidos (%) = ----------------------------- x 100
-                              Total procesados
-```
-
-Este indicador representa los teléfonos que cumplen las reglas establecidas y no presentan anomalías detectadas.
-
----
-
-### 4.5. Porcentaje de teléfonos inválidos
-
-```text
-                         Registros con status = INVALID
-Teléfonos inválidos (%) = ------------------------------- x 100
-                                Total procesados
-```
-
-Permite determinar qué proporción de los números no puede considerarse utilizable de acuerdo con las reglas definidas.
-
----
-
-### 4.6. Porcentaje de teléfonos sospechosos
-
-```text
-                            Registros con status = SUSPICIOUS
-Teléfonos sospechosos (%) = ---------------------------------- x 100
-                                   Total procesados
-```
-
-Permite conocer qué proporción requiere potencialmente una revisión adicional.
-
----
-
-### 4.7. Validez estructural
-
-Debido a que los registros `SUSPICIOUS` cumplen estructuralmente con las reglas de numeración, puede calcularse adicionalmente:
-
-```text
-                           VALID + SUSPICIOUS
-Validez estructural (%) = -------------------- x 100
-                             Total procesados
-```
-
-Este indicador debe diferenciarse del porcentaje de registros completamente aceptados.
-
----
-
-### 4.8. Registros involucrados en duplicidad
-
-```text
-                         Registros con duplicate_group
-Duplicidad (%) = ----------------------------------------- x 100
-                              Total procesados
-```
-
-Permite medir qué proporción de los registros se encuentra involucrada en un problema de unicidad.
-
----
-
-### 4.9. Cantidad de teléfonos compartidos
-
-```text
-COUNT(DISTINCT phone_normalized)
-WHERE duplicate_group IS NOT NULL
-```
-
-Permite conocer cuántos números telefónicos diferentes aparecen asociados a múltiples clientes.
-
-Este indicador complementa el porcentaje de registros involucrados en duplicidad.
-
-Por ejemplo:
-
-```text
-1 teléfono
-     |_____ Cliente A
-     |_____ Cliente B
-     |_____ Cliente C
-     |_____ Cliente D
-```
-
-representa:
-
-```text
-1 teléfono compartido
-4 registros involucrados
-```
-
----
-
-### 4.10. Errores por motivo
-
-Conteo de registros agrupados por:
-
-```text
-validation_reason
-```
-
-Ejemplos:
-
-```text
-MISSING_VALUE
-NORMALIZATION_FAILED
-INVALID_FORMAT
-INVALID_PREFIX
-INVALID_LANDLINE_LOCAL_PREFIX
-REPEATED_DIGITS
-```
-
-Este indicador permite identificar las principales causas de problemas de calidad.
-
----
-
-### 4.11. Incumplimientos por regla
-
-Permite conocer cuántas veces se incumple cada regla de calidad:
-
-```text
-R01
-R02
-R03
-...
-R10
-```
-
-Esto permite identificar cuáles reglas concentran los mayores problemas y orientar acciones de mejora hacia la fuente del dato.
-
----
-
-### 4.12. Distribución por tipo de teléfono
-
-Permite caracterizar el dataset mediante la distribución:
-
-```text
-mobile
-landline
-```
-
-Este indicador es principalmente descriptivo y no representa por sí mismo una medida de calidad.
-
----
-
-## 5. Relación entre reglas y monitoreo
-
-Las reglas definidas en el Ejercicio 1 pueden vincularse directamente con las dimensiones de calidad monitoreadas.
-
-| Regla | Dimensión               | Monitoreo                              |
-| ----- | ----------------------- | -------------------------------------- |
-| R01   | Completitud             | Teléfonos nulos o vacíos               |
-| R02   | Normalización / Formato | Valores que no pueden normalizarse     |
-| R03   | Validez                 | Longitud nacional incorrecta           |
-| R04   | Validez                 | Estructura inválida para celular       |
-| R05   | Validez                 | Estructura inválida para teléfono fijo |
-| R06   | Validez                 | Indicativo o estructura local inválida |
-| R07   | Plausibilidad           | Patrones telefónicos sospechosos       |
-| R08   | Unicidad                | Teléfonos normalizados duplicados      |
-| R09   | Trazabilidad            | Conservación de original y normalizado |
-| R10   | Trazabilidad            | Registro del resultado y motivo        |
-
-Esta relación permite mantener trazabilidad entre:
-
-```text
-Regla de negocio
-      |
-      v
-Validación técnica
-      |
-      v
-Resultado
-      |
-      v
-KPI / Monitoreo
-```
-
----
-
-## 6. Modelo conceptual de información
-
-Para soportar tanto el monitoreo como la trazabilidad se proponen tres conjuntos lógicos de información.
-
-```text
-trusted_phones
-data_quality_runs
-data_quality_rule_results
-```
-
----
-
-## 7. Dataset de teléfonos procesados
-
-`trusted_phones` contiene el detalle generado por el pipeline para cada cliente.
-
-Conceptualmente podría almacenar:
-
-| Campo               | Descripción                       |
-| ------------------- | --------------------------------- |
-| `run_id`            | Identificador de la ejecución     |
-| `customer_id`       | Identificador del cliente         |
-| `phone_original`    | Número recibido originalmente     |
-| `phone_normalized`  | Número normalizado                |
-| `phone_type`        | `mobile` o `landline`             |
-| `status`            | `VALID`, `INVALID` o `SUSPICIOUS` |
-| `validation_reason` | Motivo asociado al resultado      |
-| `duplicate_group`   | Grupo de duplicidad               |
-| `processed_at`      | Momento del procesamiento         |
-| `pipeline_version`  | Versión del pipeline              |
-| `source`            | Fuente del dato                   |
-
-Esta estructura permite conservar el resultado detallado de cada registro.
-
----
-
-## 8. Histórico de ejecuciones
-
-`data_quality_runs` registra información correspondiente a cada ejecución del pipeline.
-
-Una estructura conceptual podría ser:
-
-| Campo                | Descripción                           |
-| -------------------- | ------------------------------------- |
-| `run_id`             | Identificador único de la ejecución   |
-| `processed_at`       | Fecha y hora de procesamiento         |
-| `pipeline_version`   | Versión del código utilizado          |
-| `source`             | Sistema fuente                        |
-| `source_file`        | Archivo o conjunto de datos procesado |
-| `source_hash`        | Identificador/hash del insumo         |
-| `total_records`      | Total procesado                       |
-| `valid_records`      | Registros válidos                     |
-| `invalid_records`    | Registros inválidos                   |
-| `suspicious_records` | Registros sospechosos                 |
-| `duplicate_records`  | Registros involucrados en duplicidad  |
-
-El histórico permite comparar ejecuciones sin sobrescribir resultados anteriores.
-
-Por ejemplo:
-
-```text
-RUN-001 ---> Calidad día/ejecución 1
-RUN-002 ---> Calidad día/ejecución 2
-RUN-003 ---> Calidad día/ejecución 3
-```
-
-Esto permite analizar tendencias.
-
----
-
-## 9. Resultados de reglas de calidad
-
-Para proporcionar mayor nivel de detalle se propone conceptualmente una estructura:
-
-```text
-data_quality_rule_results
-```
-
-con campos como:
-
-| Campo         | Descripción                        |
-| ------------- | ---------------------------------- |
-| `run_id`      | Ejecución donde se evaluó la regla |
-| `customer_id` | Registro evaluado                  |
-| `rule_id`     | Regla evaluada (`R01` - `R10`)     |
-| `rule_status` | `PASSED` o `FAILED`                |
-| `rule_detail` | Detalle del resultado              |
-
-Ejemplo:
 
 ```text
 RUN-001 | 025 | R01 | FAILED | MISSING_VALUE
@@ -515,310 +99,183 @@ RUN-001 | 022 | R07 | FAILED | REPEATED_DIGITS
 RUN-001 | 001 | R08 | FAILED | DUP-001
 ```
 
-Esta estructura permite que un mismo registro pueda presentar diferentes observaciones de calidad sin limitarse a un único `validation_reason`.
+Esta estructura permite que un mismo teléfono tenga más de una observación de calidad sin depender únicamente de un único `validation_reason`.
 
 ---
 
-## 10. Trazabilidad del dato
+## Dimensiones y KPIs
 
-Para cada número telefónico se busca poder reconstruir su recorrido completo.
+El monitoreo considera principalmente completitud, validez, normalización, unicidad, plausibilidad, trazabilidad y evolución temporal.
 
-Ejemplo conceptual:
+Los principales indicadores propuestos son:
+
+| KPI | Fórmula conceptual | Qué permite conocer |
+|---|---|---|
+| Total procesados | `COUNT(*)` | Tamaño de la población analizada |
+| % Completitud | teléfonos informados / total × 100 | Ausencia de información |
+| % Normalización exitosa | teléfonos normalizados / total × 100 | Capacidad de estandarización |
+| % Válidos | `VALID` / total × 100 | Registros aceptados |
+| % Inválidos | `INVALID` / total × 100 | Datos no utilizables |
+| % Sospechosos | `SUSPICIOUS` / total × 100 | Registros que requieren revisión |
+| % Registros duplicados | registros con `duplicate_group` / total × 100 | Impacto de problemas de unicidad |
+| Teléfonos compartidos | teléfonos normalizados duplicados distintos | Cantidad de números asociados a varios clientes |
+| Errores por motivo | agrupación por `validation_reason` | Principales causas de problemas |
+| Incumplimientos por regla | agrupación por `rule_id` | Reglas con mayor número de fallos |
+
+La distribución entre `mobile` y `landline` también puede mostrarse como información descriptiva, aunque no constituye por sí misma un indicador de calidad.
+
+Los valores no se calculan sobre los 33 registros del Ejercicio 1 porque ese dataset fue construido deliberadamente para probar reglas y no representa una población real de clientes.
+
+---
+
+## Relación con las reglas del Ejercicio 1
+
+| Regla | Dimensión | Monitoreo |
+|---|---|---|
+| R01 | Completitud | Teléfonos nulos o vacíos |
+| R02 | Normalización / Formato | Valores que no pueden normalizarse |
+| R03 | Validez | Longitud nacional incorrecta |
+| R04 | Validez | Estructura inválida para celular |
+| R05 | Validez | Estructura inválida para teléfono fijo |
+| R06 | Validez | Indicativo o estructura local inválida |
+| R07 | Plausibilidad | Patrones sospechosos |
+| R08 | Unicidad | Teléfonos normalizados duplicados |
+| R09 | Trazabilidad | Conservación del valor original y normalizado |
+| R10 | Trazabilidad | Registro del resultado y motivo |
+
+De esta manera existe una relación directa entre la regla de negocio, su evaluación técnica y los indicadores presentados a negocio.
+
+---
+
+## Trazabilidad
+
+El mecanismo debe permitir consultar un cliente o teléfono y reconstruir cómo fue procesado.
 
 ```text
-customer_id
-     |
-     v
-Sistema / archivo fuente
-     |
-     v
+Fuente / archivo
+      |
+      v
 phone_original
-     |
-     v
+      |
+      v
 Normalización
-     |
-     v
+      |
+      v
 phone_normalized
-     |
-     v
+      |
+      v
 Validación
-     |
-     v
-    status
-     |
-     v
-validation_reason / rule_id
-     |
-     v
+      |
+      v
+status / rule_id
+      |
+      v
+validation_reason
+      |
+      v
 duplicate_group
-     |
-     v
-    run_id
-     |
-     v
+      |
+      v
+run_id
+      |
+      v
 processed_at
-     |
-     v
+      |
+      v
 pipeline_version
 ```
 
-Esto permitiría responder preguntas como:
+Con esta información sería posible responder, por ejemplo:
 
-* ¿Cuál era el valor original?
-* ¿Cómo fue normalizado?
-* ¿Qué regla produjo una observación?
-* ¿Qué ejecución procesó el dato?
-* ¿Cuándo fue procesado?
-* ¿Qué versión del pipeline se utilizó?
-* ¿Desde qué fuente fue recibido?
-
----
-
-## 11. Arquitectura conceptual del mecanismo
-
-La solución propuesta separa el procesamiento de datos de su consumo analítico.
-
-```text
-                    Fuente de clientes
-                           |
-                           v
-                 Pipeline Ejercicio 1
-                           |
-             +-------------+-------------+
-             |                           |
-             v                           v
-       trusted_phones            data_quality_runs
-             |                           |
-             |                 data_quality_rule_results
-             |                           |
-             +-------------+-------------+
-                           |
-                           v
-                    Capa de métricas
-                           |
-                           v
-                      Dashboard BI
-                           |
-                 +---------+---------+
-                 |                   |
-                 v                   v
-              Calidad           Trazabilidad
-                 |                   |
-                 +---------+---------+
-                           |
-                           v
-                    Equipo de negocio
-```
-
-La capa de visualización podría implementarse mediante la herramienta de Business Intelligence disponible en la organización.
-
-Por ejemplo:
-
-* Power BI.
-* Looker Studio.
-* Databricks SQL.
-* Otra herramienta corporativa de BI.
-
-La propuesta se mantiene independiente de un proveedor específico debido a que el enunciado no define una arquitectura tecnológica concreta.
+- qué valor fue recibido originalmente;
+- cómo fue normalizado;
+- qué regla generó una observación;
+- cuándo fue procesado;
+- qué ejecución produjo el resultado;
+- qué versión del pipeline fue utilizada;
+- de qué fuente provenía el registro.
 
 ---
 
-## 12. Vistas propuestas para negocio
+## Vistas para negocio
 
-El recurso podría organizarse en tres vistas principales.
+Se proponen tres vistas principales.
 
-### 12.1. Resumen ejecutivo
+### Resumen ejecutivo
 
-Presentaría los principales KPI de calidad.
-
-Por ejemplo:
+Presentaría los indicadores principales:
 
 ```text
 Total procesados
-
 % Completitud
-
 % VALID
-
 % INVALID
-
 % SUSPICIOUS
-
 % Duplicidad
-
 Variación vs. ejecución anterior
 ```
 
-Los indicadores deberían mostrar tanto su valor actual como su tendencia.
+Además del valor actual, los indicadores deberían mostrar su evolución respecto a ejecuciones anteriores.
 
-Ejemplo conceptual:
+### Análisis de calidad
 
-```text
-Teléfonos válidos
+Permitirá profundizar en las causas de los problemas mediante:
 
-91.2 %
+- errores por `validation_reason`;
+- incumplimientos por `rule_id`;
+- evolución de registros inválidos y sospechosos;
+- evolución de datos faltantes;
+- problemas de duplicidad;
+- filtros por fecha, fuente, tipo de teléfono, estado y ejecución.
 
-+3.4 pp vs. ejecución anterior
-```
+### Trazabilidad
 
-La comparación de tasas debe realizarse preferiblemente mediante puntos porcentuales.
-
----
-
-### 12.2. Análisis de calidad
-
-Esta vista permitiría profundizar en las causas de los problemas.
-
-Podría incluir:
-
-* Registros por `validation_reason`.
-* Incumplimientos por `rule_id`.
-* Tendencia de registros inválidos.
-* Tendencia de registros sospechosos.
-* Tendencia de datos faltantes.
-* Registros involucrados en duplicidad.
-* Distribución mobile / landline.
-
-Filtros sugeridos:
-
-```text
-Fecha
-run_id
-Fuente
-phone_type
-status
-validation_reason
-rule_id
-```
+Permitirá buscar por `customer_id` o número telefónico y consultar el recorrido completo del registro desde el dato original hasta el resultado generado por el pipeline.
 
 ---
 
-### 12.3. Trazabilidad
+## Evolución y alertas
 
-Permitiría buscar un registro por:
+Las métricas de `data_quality_runs` permiten comparar ejecuciones históricas y determinar si la calidad mejora o empeora.
+
+Por ejemplo:
 
 ```text
-customer_id
+             RUN-001   RUN-002   RUN-003
+
+VALID           82%       87%       91%
+INVALID         14%        9%        6%
+SUSPICIOUS       4%        4%        3%
 ```
 
-o por teléfono.
+El mecanismo podría incorporar alertas de dos tipos:
 
-El usuario podría visualizar:
+**Por umbral**, cuando un indicador supera un nivel aceptable:
 
 ```text
-Fuente
-   |
-phone_original
-   |
-phone_normalized
-   |
-phone_type
-   |
-status
-   |
-validation_reason
-   |
-rule_id
-   |
-duplicate_group
-   |
-run_id
-   |
-processed_at
-   |
-pipeline_version
+% INVALID > límite definido
+            |
+            v
+          ALERTA
 ```
 
-Esta vista permitiría a negocio entender no solamente que existe un problema, sino también cómo fue generado el resultado.
-
----
-
-## 13. Evolución histórica
-
-Los KPI principales deben almacenarse por ejecución para permitir análisis temporal.
-
-Ejemplo:
+**Por variación**, cuando un indicador cambia significativamente frente a su comportamiento histórico:
 
 ```text
-              RUN-001    RUN-002    RUN-003
-
-VALID           82%        87%        91%
-
-INVALID         14%         9%         6%
-
-SUSPICIOUS       4%         4%         3%
-```
-
-Esto permitiría detectar:
-
-```text
-Mejoras
-Deterioros
-Cambios inesperados
-Problemas en la fuente
-Impacto de nuevas reglas
-```
-
----
-
-## 14. Alertas
-
-El mecanismo puede complementarse con alertas automáticas de calidad.
-
-Se consideran dos tipos principales.
-
-### Alertas por umbral
-
-Ejemplo:
-
-```text
-% INVALID > límite aceptado
+MISSING_VALUE habitual = 1%
+Nueva ejecución        = 8%
              |
              v
            ALERTA
 ```
 
----
-
-### Alertas por variación
-
-Permiten detectar cambios anormales respecto al comportamiento histórico.
-
-Ejemplo:
-
-```text
-MISSING_VALUE histórico = 1%
-
-Nueva ejecución = 8%
-
-          |
-          v
-        ALERTA
-```
-
-Este mecanismo permite detectar posibles problemas en la fuente incluso antes de superar un límite absoluto.
+Los valores concretos de los umbrales no se definen en esta propuesta. Deberían establecerse junto con negocio utilizando datos reales y una línea base histórica.
 
 ---
 
-## 15. Definición de umbrales
+## Automatización
 
-Los valores concretos de alerta no se fijan dentro de esta propuesta.
-
-Los umbrales deberían establecerse utilizando:
-
-* Datos reales.
-* Una línea base histórica.
-* Impacto para negocio.
-* Nivel de calidad esperado.
-* Acuerdos con los responsables de los datos.
-
-Esto evita establecer límites arbitrarios sin conocer el comportamiento real del dataset.
-
----
-
-## 16. Automatización del monitoreo
-
-El proceso conceptual podría ejecutarse después de cada ejecución exitosa del pipeline del Ejercicio 1.
+El monitoreo puede ejecutarse como continuación del pipeline del Ejercicio 1:
 
 ```text
 Pipeline de teléfonos
@@ -827,10 +284,10 @@ Pipeline de teléfonos
 Dataset procesado
         |
         v
-Actualizar histórico de calidad
+Registrar ejecución y resultados de calidad
         |
         v
-Calcular KPI
+Calcular métricas
         |
         v
 Actualizar dashboard
@@ -839,5 +296,21 @@ Actualizar dashboard
 Evaluar alertas
 ```
 
-De esta manera, el monitoreo se mantendría actualizado automáticamente conforme se generen nuevas versiones del dataset.
+De esta forma, cada nueva ejecución del pipeline actualiza tanto el dataset confiable como la información utilizada para supervisar su calidad.
 
+---
+
+## Alcance de la propuesta
+
+Este ejercicio se plantea de forma conceptual, de acuerdo con el enunciado.
+
+Por esta razón no se implementa una herramienta de BI específica ni se calculan indicadores sobre el dataset artificial del Ejercicio 1.
+
+La propuesta define el mecanismo necesario para:
+
+- conservar información histórica de calidad;
+- proporcionar trazabilidad a nivel de registro;
+- calcular KPIs para negocio;
+- analizar tendencias;
+- identificar las causas de problemas de calidad;
+- incorporar alertas cuando exista una línea base real.
