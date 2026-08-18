@@ -11,3 +11,6 @@ Ejercicio_1/data/processed_clients.csv
 
 # OS files
 .DS_Store
+
+# Exercise 3 generated database
+Ejercicio_3/rachas.db
